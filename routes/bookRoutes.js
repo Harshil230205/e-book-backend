@@ -15,16 +15,69 @@ router.get("/", async (req, res) => {
   res.json(books);
 });
 
-router.get("/search", authMiddleware, async (req, res) => {
-  const { query, author, category, year } = req.query;
+router.get("/getAll", async (req, res) => {
+  try {
+    const { query, category, year, sort, page = 1, limit = 10 } = req.query;
 
-  const searchCriteria = { isApproved: true };
-  if (query) searchCriteria.title = new RegExp(query, "i");
-  if (author) searchCriteria.author = new RegExp(author, "i");
-  if (category) searchCriteria.category = new RegExp(category, "i");
-  if (year) searchCriteria.publishYear = year;
-  const books = await Book.find(searchCriteria);
-  res.json(books);
+    const searchCriteria = { isApproved: true };
+
+    if (query) {
+      searchCriteria.$or = [
+        { title: new RegExp(query, "i") },
+        { uploadedByName: new RegExp(query, "i") },
+      ];
+    }
+
+    if (category) searchCriteria.category = new RegExp(category, "i");
+    if (year) searchCriteria.publishYear = year;
+
+    const sortOption =
+      sort === "oldest" ? { publishYear: 1 } : { publishYear: -1 };
+
+    const books = await Book.find(searchCriteria)
+      .sort(sortOption)
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+
+    const totalBooks = await Book.countDocuments(searchCriteria);
+
+    res.json({
+      books,
+      totalPages: Math.ceil(totalBooks / limit),
+      currentPage: parseInt(page),
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching books" });
+  }
+});
+
+router.get("/my-books", authMiddleware, async (req, res) => {
+  try {
+    const { page = 1, limit = 10, status } = req.query;
+
+    const searchCriteria = { uploadedBy: req.user.id };
+
+    if (status === "approved") {
+      searchCriteria.isApproved = true;
+    } else if (status === "pending") {
+      searchCriteria.isApproved = false;
+    }
+
+    const books = await Book.find(searchCriteria)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+
+    const totalBooks = await Book.countDocuments(searchCriteria);
+
+    res.json({
+      books,
+      totalPages: Math.ceil(totalBooks / limit),
+      currentPage: parseInt(page),
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching user books" });
+  }
 });
 
 router.post(

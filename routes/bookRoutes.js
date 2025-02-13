@@ -4,7 +4,6 @@ const cloudinary = require("cloudinary").v2;
 const authMiddleware = require("../middleware/authMiddleware");
 const Book = require("../models/Book");
 const router = express.Router();
-const streamifier = require("streamifier");
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -14,19 +13,6 @@ cloudinary.config({
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
-
-const uploadToCloudinary = (buffer) => {
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      { resource_type: "raw" },
-      (error, result) => {
-        if (error) return reject(error);
-        resolve(result);
-      }
-    );
-    streamifier.createReadStream(buffer).pipe(stream);
-  });
-};
 
 router.post(
   "/upload",
@@ -41,11 +27,28 @@ router.post(
           .status(400)
           .json({ message: "Cover image and PDF are required" });
       }
-      const coverImageUpload = await uploadToCloudinary(
-        req.files.coverImage[0].buffer
-      );
+      const coverImageUpload = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { folder: "ebooks/covers", resource_type: "image" },
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result);
+          }
+        );
+        uploadStream.end(req.files.coverImage[0].buffer);
+      });
 
-      const pdfUpload = await uploadToCloudinary(req.files.pdf[0].buffer);
+      const pdfUpload = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { folder: "ebooks/pdf", resource_type: "raw" },
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result);
+          }
+        );
+        uploadStream.end(req.files.pdf[0].buffer);
+      });
+
       const newBook = new Book({
         title,
         description,

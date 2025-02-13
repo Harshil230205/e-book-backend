@@ -2,7 +2,14 @@ const express = require("express");
 const authMiddleware = require("../middleware/authMiddleware");
 const Book = require("../models/Book");
 const User = require("../models/User");
+const cloudinary = require("cloudinary").v2;
 const router = express.Router();
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 const adminMiddleware = (req, res, next) => {
   if (!req.user.isAdmin) {
@@ -44,6 +51,25 @@ router.get(
   }
 );
 
+router.get("/books/getById/:id", authMiddleware, async (req, res) => {
+  try {
+    const book = await Book.findById(req.params.id);
+    if (!book) {
+      return res.status(404).json({ message: "Book not found" });
+    }
+
+    console.log(book);
+
+    if (!book.isApproved && book.uploadedBy.toString() !== req.user.id) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    res.json(book);
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching book" });
+  }
+});
+
 router.post(
   "/books/approve/:id",
   authMiddleware,
@@ -64,14 +90,33 @@ router.delete(
   adminMiddleware,
   async (req, res) => {
     try {
+      const book = await Book.findById(req.params.id);
+      if (!book) {
+        return res.status(404).json({ message: "Book not found" });
+      }
+
+      if (book.coverImagePublicId) {
+        await cloudinary.uploader.destroy(book.coverImagePublicId, {
+          resource_type: "image",
+        });
+      }
+
+      if (book.pdfPublicId) {
+        await cloudinary.uploader.destroy(book.pdfPublicId, {
+          resource_type: "raw",
+        });
+      }
+
       await Book.findByIdAndDelete(req.params.id);
-      res.json({ message: "Book deleted" });
+
+      res.json({ message: "Book and associated files deleted" });
     } catch (err) {
-      res.status(500).json({ message: "Error deleting book" });
+      res
+        .status(500)
+        .json({ message: "Error deleting book", error: err.message });
     }
   }
 );
-
 router.get(
   "/users/getAll",
   authMiddleware,
